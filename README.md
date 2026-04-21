@@ -63,7 +63,7 @@ In real ICUs, vital signs are charted every 1–4 hours, and clinical deteriorat
 | `vitals.alerts` | `patient_id` | 6 | 30d | Deterioration alerts |
 | `patients.admin` | `patient_id` | 3 | compacted | Admit / discharge / demographics |
 
-Schemas are managed via a Schema Registry (Avro or Protobuf).
+Schemas are managed via a Schema Registry (Avro).
 
 ---
 
@@ -105,7 +105,7 @@ Go was chosen because each virtual patient maps cleanly onto a goroutine, and th
 - **Language**: Rust (stable)
 - **Async runtime**: [`tokio`](https://tokio.rs/)
 - **Kafka client**: [`rdkafka`](https://github.com/fede1024/rust-rdkafka) (librdkafka bindings)
-- **Serialization**: [`apache-avro`](https://crates.io/crates/apache-avro) or [`prost`](https://crates.io/crates/prost)
+- **Serialization**: [`apache-avro`](https://crates.io/crates/apache-avro)
 - **In-memory state**: [`dashmap`](https://crates.io/crates/dashmap) for per-patient sharded state
 - **Persistence**: [`sqlx`](https://crates.io/crates/sqlx) → TimescaleDB
 - **Metrics**: [`prometheus`](https://crates.io/crates/prometheus) crate
@@ -123,16 +123,39 @@ PySpark handles workloads that the Rust scorer intentionally avoids: long-window
 
 ### Supporting Infrastructure
 
+The infrastructure is organized in three layers, each building on the one below it.
+
+#### Layer 1 — Core Pipeline (Critical Path)
+
+This is the heart of the project. Every other layer depends on this being correct and low-latency.
+
 | Component | Purpose |
 |---|---|
-| **Apache Kafka** | Event backbone |
-| **Schema Registry** | Avro / Protobuf schema management |
-| **TimescaleDB** | Hot state store for live dashboards |
-| **Delta Lake** | Lakehouse storage for analytics |
-| **MinIO** | S3-compatible object storage (local dev) |
-| **Grafana** | Real-time dashboards |
-| **Docker Compose** | Local orchestration |
-| **Prometheus** | Metrics collection |
+| **Docker Compose** | Orchestrates Kafka (KRaft), Schema Registry, and TimescaleDB for local development |
+| **Go Simulator** | Generates concurrent vital-sign streams; one goroutine per patient |
+| **Apache Kafka** | Durable, ordered event backbone keyed by `patient_id` |
+| **Schema Registry** | Enforces Avro contracts between producers and consumers |
+| **Rust Scorer** | Computes NEWS2 in real time with predictable latency and no GC pauses |
+| **TimescaleDB** | Hot state store written by the Rust scorer for live dashboard queries |
+
+#### Layer 2 — Analytics & Storage
+
+Handles workloads the Rust scorer intentionally avoids: long-window aggregations, cross-topic joins, and ML training over historical data.
+
+| Component | Purpose |
+|---|---|
+| **PySpark** | Structured Streaming jobs (5-min, 1-hour aggregates) and nightly batch ML |
+| **Delta Lake** | ACID lakehouse storage for analytics and ML training data |
+| **MinIO** | S3-compatible object storage; local stand-in for AWS S3 during development |
+
+#### Layer 3 — Observability
+
+Sits on top of both layers and provides visibility into clinical state and system health.
+
+| Component | Purpose |
+|---|---|
+| **Grafana** | Real-time dashboards over TimescaleDB (live vitals) and Delta Lake (ward KPIs) |
+| **Prometheus** | Scrapes operational metrics from the Rust scorer (throughput, latency, alert counts) |
 
 ---
 
@@ -158,7 +181,7 @@ icu-vitals-streaming/
 │   ├── streaming/          # Structured Streaming jobs
 │   ├── batch/              # Nightly batch jobs
 │   └── ml/                 # Deterioration prediction model
-├── schemas/                # Avro / Protobuf schemas
+├── schemas/                # Avro schemas
 ├── infra/
 │   ├── docker-compose.yml
 │   ├── grafana/
@@ -185,7 +208,7 @@ icu-vitals-streaming/
 ### Quick Start (Planned)
 
 ```bash
-# Spin up Kafka, TimescaleDB, MinIO, Grafana, etc.
+# Spin up Kafka (KRaft), Schema Registry, TimescaleDB, MinIO, Grafana, etc.
 cd infra && docker compose up -d
 
 # Start the simulator with 50 patients
@@ -220,4 +243,4 @@ This project uses entirely synthetic data and is intended for educational and po
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
