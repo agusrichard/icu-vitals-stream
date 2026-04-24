@@ -1,0 +1,5 @@
+services:
+  simulator:
+    build:
+      context: ../simulator
+      dockerfile: Dockerfile
