@@ -4,7 +4,7 @@ import (
 	"flag"
 	"sync"
 
-	"github.com/agusrichard/icu-vitals-stream/simulator/cmd/internal"
+	"github.com/agusrichard/icu-vitals-stream/simulator/internal"
 )
 
 func main() {
