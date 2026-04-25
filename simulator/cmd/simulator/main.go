@@ -1,15 +1,15 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
+	"github.com/agusrichard/icu-vitals-stream/simulator/cmd/internal"
 )
 
 func main() {
-	fmt.Println("simulator started")
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	patient := internal.NewPatient("richard")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		patient.Run()
+	}()
+	<-done
 }
