@@ -134,15 +134,28 @@ Scale 1 applies to all patients in this simulator. Scale 2 (for COPD / hypercapn
 
 ### Consciousness (ACVPU)
 
-New Confusion was added in NEWS2 (vs the original NEWS) as an early sepsis and hypoxia marker.
+ACVPU is the standard clinical scale for assessing a patient's level of consciousness. New Confusion (C) was added in NEWS2 — absent from the original NEWS — because it is often the earliest sign of sepsis or hypoxia: a patient can be confused while still appearing physically well, and that single finding scores 3 points.
 
-| Level | Score |
-|---|---|
-| Alert | 0 |
-| New Confusion | 3 |
-| Voice | 3 |
-| Pain | 3 |
-| Unresponsive | 3 |
+| Level | Meaning | Score |
+|---|---|---|
+| **A** — Alert | Fully awake and oriented; responds normally | 0 |
+| **C** — New Confusion | Awake but disoriented, rambling, or not making sense | 3 |
+| **V** — Voice | Eyes closed; opens them or moves only when spoken to | 3 |
+| **P** — Pain | No response to voice; moves or grimaces only when pinched | 3 |
+| **U** — Unresponsive | No reaction to voice or pain stimulus | 3 |
+
+Any level below Alert scores 3 — a single consciousness finding overrides an otherwise low aggregate and triggers urgent escalation.
+
+#### Consciousness in the simulator's 6 states
+
+| State | Consciousness | Reasoning |
+|---|---|---|
+| Stable | Always Alert | Healthy baseline |
+| Deteriorating — Sepsis | 70% Alert, 30% Voice | Sepsis can cloud cognition early |
+| Deteriorating — Respiratory | 80% Alert, 20% Voice | Hypoxia gradually impairs cognition |
+| Deteriorating — Cardiac | 80% Alert, 20% Voice | Low cardiac output reduces cerebral perfusion |
+| Post-Op Recovering | Always Alert | Anaesthesia has worn off |
+| Septic Shock | Voice / Pain / Unresponsive equally | Cardiovascular collapse severely impairs brain perfusion |
 
 ### Escalation Thresholds
 
