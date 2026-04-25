@@ -48,7 +48,7 @@ In real ICUs, vital signs are charted every 1–4 hours, and clinical deteriorat
 
 ### Data Flow
 
-1. **Go simulator** generates vital signs for N virtual patients, each modeled as an independent goroutine with an underlying clinical state machine (stable, deteriorating-sepsis, deteriorating-respiratory, post-op recovering, etc.).
+1. **Go simulator** generates vital signs for N virtual patients, each modeled as an independent goroutine with an underlying clinical state machine (see [Clinical States](#clinical-states)).
 2. **Kafka** serves as the durable event backbone, with topics keyed by `patient_id` to preserve per-patient ordering.
 3. **Rust consumer** maintains per-patient rolling windows in memory, computes NEWS2 in real time, deduplicates and emits alerts on score transitions, and snapshots state to TimescaleDB for the live dashboard.
 4. **PySpark** runs both Structured Streaming jobs (5-minute and 1-hour aggregates) and nightly batch jobs (ward KPIs, ML training for deterioration prediction).
@@ -69,23 +69,203 @@ Schemas are managed via a Schema Registry (Avro).
 
 ## The NEWS2 Scoring Algorithm
 
-The Rust consumer implements the NEWS2 score, which assigns 0–3 points to each of seven physiological parameters:
+NEWS2 (National Early Warning Score 2) was published by the Royal College of Physicians in December 2017 and has received formal NHS England endorsement as the standard early warning system for identifying acutely ill patients, including those with sepsis. **No scoring threshold changes have been issued since the 2017 publication** — a 2022 update revised only the observation chart formatting.
 
-| Parameter | Measured |
+The Rust consumer implements NEWS2 by scoring each of seven physiological parameters from 0–3 based on how far the measurement deviates from normal, then summing them. The maximum possible total is 20.
+
+### Respiratory Rate (breaths/min)
+
+| Range | Score |
 |---|---|
-| Respiratory rate | breaths/min |
-| SpO₂ | oxygen saturation % |
-| Supplemental oxygen | yes / no |
-| Temperature | °C |
-| Systolic blood pressure | mmHg |
-| Heart rate | bpm |
-| Consciousness (ACVPU) | Alert / Confusion / Voice / Pain / Unresponsive |
+| ≤ 8 | 3 |
+| 9–11 | 1 |
+| 12–20 | 0 |
+| 21–24 | 2 |
+| ≥ 25 | 3 |
 
-Aggregate scores trigger escalation tiers:
+### SpO₂
 
-- **0–4**: routine monitoring
-- **5–6** (or any single parameter scoring 3): urgent clinical review
-- **≥ 7**: emergency response
+Scale 1 applies to all patients in this simulator. Scale 2 (for COPD / hypercapnic respiratory failure patients who target a lower SpO₂ of 88–92%) is out of scope — none of the six clinical states model chronic CO₂ retention.
+
+| Range | Score |
+|---|---|
+| ≤ 91% | 3 |
+| 92–93% | 2 |
+| 94–95% | 1 |
+| ≥ 96% | 0 |
+
+### Supplemental Oxygen
+
+| | Score |
+|---|---|
+| Room air | 0 |
+| Any supplemental O₂ | 2 |
+
+### Systolic Blood Pressure (mmHg)
+
+| Range | Score |
+|---|---|
+| ≤ 90 | 3 |
+| 91–100 | 2 |
+| 101–110 | 1 |
+| 111–219 | 0 |
+| ≥ 220 | 3 |
+
+### Heart Rate (bpm)
+
+| Range | Score |
+|---|---|
+| ≤ 40 | 3 |
+| 41–50 | 1 |
+| 51–90 | 0 |
+| 91–110 | 1 |
+| 111–130 | 2 |
+| ≥ 131 | 3 |
+
+### Temperature (°C)
+
+| Range | Score |
+|---|---|
+| ≤ 35.0 | 3 |
+| 35.1–36.0 | 1 |
+| 36.1–38.0 | 0 |
+| 38.1–39.0 | 1 |
+| ≥ 39.1 | 2 |
+
+### Consciousness (ACVPU)
+
+New Confusion was added in NEWS2 (vs the original NEWS) as an early sepsis and hypoxia marker.
+
+| Level | Score |
+|---|---|
+| Alert | 0 |
+| New Confusion | 3 |
+| Voice | 3 |
+| Pain | 3 |
+| Unresponsive | 3 |
+
+### Escalation Thresholds
+
+| Score | Risk | Required Response |
+|---|---|---|
+| 0 | Low | Routine monitoring, minimum 12-hourly obs |
+| 1–4 | Low | Minimum 12-hourly; nurse decides whether to escalate |
+| Any single parameter = 3 | Low–Medium | Urgent assessment by a competent registered nurse |
+| 5–6 | Medium | Urgent clinician review; minimum hourly obs |
+| ≥ 7 | **High** | Emergency response team; consider HDU/ICU transfer; continuous monitoring |
+
+Sepsis-specific rule: a score ≥ 5 in a patient with known or suspected infection should trigger the sepsis bundle (lactate, blood cultures, antibiotics).
+
+### How the Score and Clinical State Are Used Across the Pipeline
+
+The Rust scorer does two things with each reading:
+
+1. **Computes the NEWS2 aggregate score** and per-parameter subscores, firing an alert when thresholds are crossed.
+2. **Classifies the current clinical state** using rule-based pattern matching on the current snapshot — e.g. high temp + low BP + high HR → sepsis; very low SpO₂ + very high RR + supplemental O₂ → respiratory failure. This is deterministic, explainable, and fast: exactly what a real-time clinical alerter needs to be.
+
+The PySpark ML model does something the Rust scorer fundamentally cannot: it sees a **time series** of parameter values across a rolling window and detects deteriorating trends *before thresholds are crossed*. A patient whose heart rate has drifted 75 → 85 → 95 → 108 over 10 minutes may still have a NEWS2 score of 2, but the trajectory already matches a pre-sepsis pattern the model has learned.
+
+The key distinction is **snapshot vs trajectory**. The Rust scorer is always right about *now*. The ML model is trying to be right about *what is coming* — predicting the clinical condition earlier than any threshold-based rule can, by learning from `simulator_state` ground truth labels attached to every reading.
+
+---
+
+## Clinical States
+
+Each simulated patient holds one of six clinical states and transitions between them probabilistically on every tick. The `simulator_state` field is included in every emitted message as ground truth for the PySpark ML model — it is never read by the Rust NEWS2 scorer.
+
+### Stable
+
+Normal physiology. All seven NEWS2 parameters are within healthy ranges. This is the baseline state most patients start in and the target of any recovery trajectory. NEWS2 score is typically 0–2.
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 12–20 breaths/min |
+| SpO₂ | 95–99% |
+| Supplemental O₂ | No |
+| Temperature | 36.1–37.2 °C |
+| Systolic BP | 110–130 mmHg |
+| Heart rate | 60–80 bpm |
+| Consciousness | Alert |
+
+---
+
+### Deteriorating — Sepsis
+
+Infection-driven organ dysfunction. Sepsis is defined clinically by at least two of: respiratory rate ≥ 22, systolic BP ≤ 100 mmHg, or altered consciousness. Presents with high fever, elevated heart rate, low blood pressure, and elevated respiratory rate as the body mounts a systemic inflammatory response. NEWS2 score typically 4–7.
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 20–30 breaths/min |
+| SpO₂ | 93–97% |
+| Supplemental O₂ | ~20% chance |
+| Temperature | 38.5–40.0 °C |
+| Systolic BP | 85–105 mmHg |
+| Heart rate | 100–140 bpm |
+| Consciousness | Alert or Voice |
+
+---
+
+### Deteriorating — Respiratory
+
+Acute respiratory failure. Respiratory rate is often the first and most sensitive sign of clinical decline. Presents with very high breathing effort, low oxygen saturation, and mandatory supplemental oxygen. May co-occur with cardiac or septic presentations. NEWS2 score typically 5–8.
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 25–35 breaths/min |
+| SpO₂ | 88–93% |
+| Supplemental O₂ | Always |
+| Temperature | 36.5–37.5 °C |
+| Systolic BP | 105–125 mmHg |
+| Heart rate | 90–120 bpm |
+| Consciousness | Alert or Voice |
+
+---
+
+### Deteriorating — Cardiac
+
+Cardiovascular instability — low cardiac output, arrhythmia, or early cardiogenic shock. Distinguishable from sepsis by the absence of fever: blood pressure and heart rate are abnormal but temperature is near normal. NEWS2 score typically 4–7.
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 18–26 breaths/min |
+| SpO₂ | 92–96% |
+| Supplemental O₂ | ~40% chance |
+| Temperature | 36.0–37.0 °C |
+| Systolic BP | 80–100 mmHg |
+| Heart rate | 100–150 bpm |
+| Consciousness | Alert or Voice |
+
+---
+
+### Post-Op Recovering
+
+Post-surgical state. The patient is through the acute phase but the body is still under systemic stress from anaesthesia and tissue trauma. Vitals are mildly abnormal — slightly elevated heart rate, slightly low blood pressure, moderate respiratory rate — but trending toward stable. NEWS2 score typically 1–4.
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 14–22 breaths/min |
+| SpO₂ | 93–97% |
+| Supplemental O₂ | ~30% chance |
+| Temperature | 36.8–37.8 °C |
+| Systolic BP | 100–120 mmHg |
+| Heart rate | 75–95 bpm |
+| Consciousness | Alert |
+
+---
+
+### Septic Shock
+
+End-stage sepsis with cardiovascular collapse. The infection is now refractory to fluid resuscitation: blood pressure is critically low, heart rate is very high, and the patient is in altered consciousness. Carries a high mortality risk. NEWS2 score typically ≥ 7 (emergency threshold).
+
+| Parameter | Range |
+|---|---|
+| Respiratory rate | 25–38 breaths/min |
+| SpO₂ | 85–91% |
+| Supplemental O₂ | Always |
+| Temperature | 38.5–41.0 °C |
+| Systolic BP | 60–85 mmHg |
+| Heart rate | 120–160 bpm |
+| Consciousness | Voice, Pain, or Unresponsive |
 
 ---
 
@@ -93,7 +273,7 @@ Aggregate scores trigger escalation tiers:
 
 ### Data Generation — Go
 
-- **Language**: Go 1.22+
+- **Language**: Go 1.26.2
 - **Kafka client**: [`segmentio/kafka-go`](https://github.com/segmentio/kafka-go)
 - **Concurrency model**: One goroutine per simulated patient, sharing a producer pool via channels
 - **Control plane**: Small HTTP API for admit / discharge / scenario triggering
@@ -230,7 +410,7 @@ A few choices worth calling out for anyone reading the code:
 - **Per-patient keying.** All topics are keyed by `patient_id` to preserve ordering within a patient's stream. Cross-patient ordering doesn't matter clinically.
 - **Compacted admin topic.** `patients.admin` is log-compacted so the scorer can rebuild patient demographics on restart without replaying the full event log.
 - **Rust over Go for the scorer.** Both could do this job. Rust was chosen specifically to demonstrate when predictable latency and zero GC pauses earn their complexity — a real-time clinical alerter is a clean justification.
-- **NEWS2 as a baseline, not the goal.** The PySpark ML pipeline is explicitly framed as "can we beat NEWS2?" rather than "can we replace it?" Interpretability matters in clinical contexts.
+- **Snapshot vs trajectory.** The Rust scorer classifies the current clinical state from a single reading using rule-based pattern matching — fast, deterministic, explainable. The PySpark ML model learns from rolling windows of parameter trajectories to predict deterioration *before* thresholds are crossed. The two layers are complementary, not redundant.
 - **Simulator ground truth.** Every emitted reading carries a hidden `simulator_state` field, used as ground truth for evaluating the ML model. This field is never read by the Rust scorer.
 
 ---
