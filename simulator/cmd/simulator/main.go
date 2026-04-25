@@ -2,14 +2,28 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
+	"time"
 )
 
+func printOK(done chan struct{}) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	end := time.After(1 * time.Minute)
+
+	for {
+		select {
+		case <-ticker.C:
+			fmt.Println("ok!")
+		case <-end:
+			done <- struct{}{}
+			return
+		}
+	}
+}
+
 func main() {
-	fmt.Println("simulator started")
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	done := make(chan struct{})
+	go printOK(done)
+	<-done
 }
