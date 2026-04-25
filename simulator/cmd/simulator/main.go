@@ -1,29 +1,15 @@
 package main
 
 import (
-	"fmt"
-	"time"
+	"github.com/agusrichard/icu-vitals-stream/simulator/cmd/internal"
 )
 
-func printOK(done chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	end := time.After(1 * time.Minute)
-
-	for {
-		select {
-		case <-ticker.C:
-			fmt.Println("ok!")
-		case <-end:
-			done <- struct{}{}
-			return
-		}
-	}
-}
-
 func main() {
+	patient := internal.NewPatient("richard")
 	done := make(chan struct{})
-	go printOK(done)
+	go func() {
+		defer close(done)
+		patient.Run()
+	}()
 	<-done
 }
