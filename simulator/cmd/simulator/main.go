@@ -1,15 +1,26 @@
 package main
 
 import (
+	"flag"
+	"sync"
+
 	"github.com/agusrichard/icu-vitals-stream/simulator/cmd/internal"
 )
 
 func main() {
-	patient := internal.NewPatient("richard")
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		patient.Run()
-	}()
-	<-done
+	patients := flag.Int("patients", 1, "Number of patients to simulate")
+	flag.Parse()
+	println("Number of patients to simulate:", *patients)
+
+	var wg sync.WaitGroup
+	for i := 0; i < *patients; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			patient := internal.NewPatient()
+			patient.Run()
+		}()
+	}
+
+	wg.Wait()
 }

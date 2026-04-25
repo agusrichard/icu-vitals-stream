@@ -2,47 +2,48 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Patient struct {
-	ID string
+	ID    string
+	State SimulatorState
 }
 
-func NewPatient(id string) *Patient {
+func NewPatient() *Patient {
 	return &Patient{
-		ID: id,
+		ID:    uuid.New().String(),
+		State: Stable,
 	}
 }
 
 func (p *Patient) Run() {
+	fmt.Fprintf(os.Stderr, "Start running patient %s streaming...\n", p.ID)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "\t")
 	end := time.After(1 * time.Minute)
 	for {
 		select {
 		case <-ticker.C:
-			enc.Encode(p.templateVitals())
+			fmt.Fprintf(os.Stderr, "==> Patient %s parameters...\n", p.ID)
+			if err := enc.Encode(p.sampleVitals()); err != nil {
+				fmt.Fprintf(os.Stderr, "encode error patient %s: %v\n", p.ID, err)
+				return
+			}
 		case <-end:
 			return
 		}
 	}
 }
 
-func (p *Patient) templateVitals() VitalSigns {
-	return VitalSigns{
-		PatientID:          p.ID,
-		Timestamp:          time.Now().UTC(),
-		RespirationRate:    15,
-		OxygenSaturation:   98,
-		SupplementalO2:     false,
-		Temperature:        37.0,
-		SystolicBP:         120,
-		HeartRate:          72,
-		ConsciousnessLevel: Alert,
-		SimulatorState:     Stable,
-	}
+func (p *Patient) sampleVitals() VitalSigns {
+	p.State = NextState(p.State)
+	return sampleVitals(p.ID, p.State)
 }
