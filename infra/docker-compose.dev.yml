@@ -1,0 +1,10 @@
+services:
+  simulator:
+    build:
+      target: dev
+    volumes:
+      - ../simulator:/src
+    environment:
+      - PATIENTS=3
+      - BROKERS=localhost:9092
+    restart: "no"

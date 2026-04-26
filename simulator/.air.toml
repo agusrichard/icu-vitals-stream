@@ -1,0 +1,11 @@
+root = "."
+tmp_dir = "/tmp/air"
+
+[build]
+cmd         = "go build -o /tmp/air/simulator ./cmd/simulator"
+bin         = "/tmp/air/simulator"
+include_ext = ["go"]
+exclude_dir = ["tmp"]
+
+[log]
+time = false

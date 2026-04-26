@@ -1,10 +1,17 @@
-FROM golang:1.26.2-alpine AS build
+FROM golang:1.26-alpine AS builder
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o /simulator ./cmd/simulator
+RUN go build -ldflags="-s -w" -o /simulator ./cmd/simulator
 
-FROM alpine:3.21
-COPY --from=build /simulator /simulator
+FROM golang:1.26-alpine AS dev
+WORKDIR /src
+RUN go install github.com/air-verse/air@latest
+COPY go.mod go.sum ./
+RUN go mod download
+CMD ["air", "-c", ".air.toml"]
+
+FROM alpine:3.21 AS runtime
+COPY --from=builder /simulator /simulator
 CMD ["/simulator"]
