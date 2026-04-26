@@ -10,7 +10,6 @@ type VitalSigns struct {
 	Timestamp      time.Time      `json:"timestamp"`
 	SimulatorState SimulatorState `json:"simulator_state"`
 
-	// 7 NEWS2 parameters
 	RespirationRate    int                `json:"respiration_rate"`
 	OxygenSaturation   int                `json:"oxygen_saturation"`
 	SupplementalO2     bool               `json:"supplemental_o2"`
@@ -20,7 +19,7 @@ type VitalSigns struct {
 	ConsciousnessLevel ConsciousnessLevel `json:"consciousness_level"`
 }
 
-func sampleVitals(patientID string, state SimulatorState) VitalSigns {
+func SampleVitals(patientID string, state SimulatorState) VitalSigns {
 	return VitalSigns{
 		PatientID:          patientID,
 		Timestamp:          time.Now().UTC(),
