@@ -7,4 +7,5 @@ services:
     environment:
       - PATIENTS=3
       - BROKERS=kafka:9092
+      - NO_KAFKA=true
     restart: unless-stopped
