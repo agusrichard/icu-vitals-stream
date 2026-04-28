@@ -1,5 +1,6 @@
 services:
   simulator:
+    container_name: go-simulator
     build:
       context: ../simulator
       dockerfile: Dockerfile
@@ -9,3 +10,41 @@ services:
       - BROKERS=kafka:9092
       - NO_KAFKA=true
     restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka:8.2.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: 2-pVRRCrSWqlNUBBlKPRIQ  # hardcoded for local dev only
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  schema-registry:
+    container_name: schema-registry
+    image: confluentinc/cp-schema-registry:8.2.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - "8081:8081"
+volumes:
+  kafka-data:
