@@ -32,27 +32,35 @@ In real ICUs, vital signs are charted every 1–4 hours, and clinical deteriorat
 ## Architecture
 
 ```
-┌──────────────┐     ┌─────────┐     ┌────────────────┐     ┌──────────────┐
-│  Go          │────▶│  Kafka  │────▶│  Rust          │────▶│ TimescaleDB  │
-│  Simulator   │     │         │     │  Scorer/Alert  │     │  (state)     │
-│  (N patients)│     │ topics  │     │                │     └──────────────┘
-└──────────────┘     │         │     └────────────────┘     ┌──────────────┐
-                     │         │              │             │   Grafana    │
-                     │         │              ▼             │  dashboards  │
-                     │         │     ┌────────────────┐     └──────────────┘
-                     │         │────▶│  PySpark       │────▶┌──────────────┐
-                     │         │     │  Structured    │     │   Delta /    │
-                     │         │     │  Streaming     │     │   Parquet    │
-                     └─────────┘     └────────────────┘     └──────────────┘
+┌─────────────────────┐
+│  Patient Admin API  │────────────────────────────────────┐
+│  (Go REST API)      │                                    │
+└─────────────────────┘                                    │
+           │                                               ▼
+           │ patient registry             ┌──────────────────────┐
+           ▼                              │     TimescaleDB      │
+┌──────────────────┐     ┌─────────┐      │  (state + registry)  │
+│  Go              │────▶│  Kafka  │────▶ │                      │
+│  Simulator       │     │         │      └──────────────────────┘
+│  (N patients)    │     │ topics  │      ┌──────────────┐
+└──────────────────┘     │         │      │   Grafana    │
+                         │         │      │  dashboards  │
+                         │         │      └──────────────┘
+                         │         │     ┌────────────────┐
+                         │         │────▶│  PySpark       │────▶┌──────────────┐
+                         │         │     │  Structured    │     │   Delta /    │
+                         │         │     │  Streaming     │     │   Parquet    │
+                         └─────────┘     └────────────────┘     └──────────────┘
 ```
 
 ### Data Flow
 
-1. **Go simulator** generates vital signs for N virtual patients, each modeled as an independent goroutine with an underlying clinical state machine (see [Clinical States](#clinical-states)).
-2. **Kafka** serves as the durable event backbone, with topics keyed by `patient_id` to preserve per-patient ordering.
-3. **Rust consumer** maintains per-patient rolling windows in memory, computes NEWS2 in real time, deduplicates and emits alerts on score transitions, and snapshots state to TimescaleDB for the live dashboard.
-4. **PySpark** runs both Structured Streaming jobs (5-minute and 1-hour aggregates) and nightly batch jobs (ward KPIs, ML training for deterioration prediction).
-5. **Grafana** visualizes live patient state and ward-level metrics from TimescaleDB.
+1. **Patient Admin API** (Go REST API) provides the patient registry — the simulator queries it on startup to load registered patients and their initial clinical state. Admission and discharge events will eventually be published to the `patients.admin` Kafka topic (deferred to Layer 2 implementation).
+2. **Go simulator** generates vital signs for N virtual patients, each modeled as an independent goroutine with an underlying clinical state machine (see [Clinical States](#clinical-states)).
+3. **Kafka** serves as the durable event backbone, with topics keyed by `patient_id` to preserve per-patient ordering.
+4. **Rust consumer** maintains per-patient rolling windows in memory, computes NEWS2 in real time, deduplicates and emits alerts on score transitions, and snapshots state to TimescaleDB for the live dashboard.
+5. **PySpark** runs both Structured Streaming jobs (5-minute and 1-hour aggregates) and nightly batch jobs (ward KPIs, ML training for deterioration prediction).
+6. **Grafana** visualizes live patient state and ward-level metrics from TimescaleDB.
 
 ### Kafka Topic Design
 
@@ -316,7 +324,7 @@ PySpark handles workloads that the Rust scorer intentionally avoids: long-window
 
 ### Supporting Infrastructure
 
-The infrastructure is organized in three layers, each building on the one below it.
+The infrastructure is organized in four layers, each building on the one below it.
 
 #### Layer 1 — Core Pipeline (Critical Path)
 
@@ -331,7 +339,16 @@ This is the heart of the project. Every other layer depends on this being correc
 | **Rust Scorer** | Computes NEWS2 in real time with predictable latency and no GC pauses |
 | **TimescaleDB** | Hot state store written by the Rust scorer for live dashboard queries |
 
-#### Layer 2 — Analytics & Storage
+#### Layer 2 — Patient Administration API
+
+A Go REST API that manages the patient registry — registering patients, setting initial clinical conditions, and providing the simulator with the patient roster on startup. Admission and discharge events are published to the `patients.admin` Kafka topic, allowing the scorer and analytics layer to react to ward-level changes.
+
+| Component | Purpose |
+|---|---|
+| **Patient Admin API** | Go REST API for registering patients and setting initial clinical state |
+| **`patients.admin` topic** | Kafka topic for admit / discharge events consumed by the scorer and PySpark |
+
+#### Layer 3 — Analytics & Storage
 
 Handles workloads the Rust scorer intentionally avoids: long-window aggregations, cross-topic joins, and ML training over historical data.
 
@@ -341,9 +358,9 @@ Handles workloads the Rust scorer intentionally avoids: long-window aggregations
 | **Delta Lake** | ACID lakehouse storage for analytics and ML training data |
 | **MinIO** | S3-compatible object storage; local stand-in for AWS S3 during development |
 
-#### Layer 3 — Observability
+#### Layer 4 — Observability
 
-Sits on top of both layers and provides visibility into clinical state and system health.
+Sits on top of all layers and provides visibility into clinical state and system health.
 
 | Component | Purpose |
 |---|---|
@@ -421,7 +438,7 @@ cd analytics && spark-submit streaming/vitals_aggregator.py
 A few choices worth calling out for anyone reading the code:
 
 - **Per-patient keying.** All topics are keyed by `patient_id` to preserve ordering within a patient's stream. Cross-patient ordering doesn't matter clinically.
-- **Compacted admin topic.** `patients.admin` is log-compacted so the scorer can rebuild patient demographics on restart without replaying the full event log.
+- **Compacted admin topic.** `patients.admin` is log-compacted so the scorer can rebuild patient demographics on restart without replaying the full event log. This topic is produced by the Patient Admin API (Layer 2) and is deferred until that layer is implemented.
 - **Rust over Go for the scorer.** Both could do this job. Rust was chosen specifically to demonstrate when predictable latency and zero GC pauses earn their complexity — a real-time clinical alerter is a clean justification.
 - **Snapshot vs trajectory.** The Rust scorer classifies the current clinical state from a single reading using rule-based pattern matching — fast, deterministic, explainable. The PySpark ML model learns from rolling windows of parameter trajectories to predict deterioration *before* thresholds are crossed. The two layers are complementary, not redundant.
 - **Simulator ground truth.** Every emitted reading carries a hidden `simulator_state` field, used as ground truth for evaluating the ML model. This field is never read by the Rust scorer.
