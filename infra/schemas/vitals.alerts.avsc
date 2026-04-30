@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "VitalAlert",
+  "namespace": "com.icu.vitals",
+  "fields": [
+    {"name": "patient_id",    "type": "string"},
+    {"name": "timestamp",     "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "previous_tier", "type": "string"},
+    {"name": "new_tier",      "type": "string"},
+    {"name": "news2_score",   "type": "int"}
+  ]
+}
