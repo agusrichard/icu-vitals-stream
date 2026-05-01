@@ -1,4 +1,5 @@
 pub mod vitals;
+pub mod news2;
 
 use apache_avro::from_value;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
