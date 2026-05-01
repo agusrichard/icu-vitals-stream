@@ -412,7 +412,7 @@ icu-vitals-streaming/
 
 - Docker and Docker Compose
 - Go 1.22+
-- Rust (stable, via rustup)
+- Rust (stable, via rustup) — plus `cmake` for the `rdkafka` C build (`brew install cmake` on macOS)
 - Python 3.11+ with PySpark 3.5+
 
 ### Quick Start (Planned)
