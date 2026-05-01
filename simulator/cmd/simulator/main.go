@@ -18,16 +18,17 @@ func main() {
 	patients := flag.Int("patients", 1, "Number of patients to simulate")
 	brokers := flag.String("brokers", "localhost:9092", "Kafka broker list")
 	noKafka := flag.Bool("no-kafka", false, "Discard Kafka messages (use when broker is not running)")
+	schemaRegistry := flag.String("schema-registry", "http://localhost:8081", "Schema Registry URL")
 	flag.Parse()
-	internal.LogInfo("patients=%d, brokers=%s, no-kafka=%t\n",
-		*patients, *brokers, *noKafka)
+	internal.LogInfo("patients=%d, brokers=%s, no-kafka=%t, schema-registry=%s\n",
+		*patients, *brokers, *noKafka, *schemaRegistry)
 
 	var p producer.Producer
 	if *noKafka {
 		p = producer.NewNoopProducer()
 	} else {
 		var err error
-		p, err = producer.NewKafkaProducer(strings.Split(*brokers, ","))
+		p, err = producer.NewKafkaProducer(strings.Split(*brokers, ","), *schemaRegistry)
 		if err != nil {
 			log.Fatal(err)
 		}

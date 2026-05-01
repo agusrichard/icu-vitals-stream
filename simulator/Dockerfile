@@ -14,4 +14,8 @@ CMD ["air", "-c", ".air.toml"]
 
 FROM alpine:3.21 AS runtime
 COPY --from=builder /simulator /simulator
-CMD /simulator -patients=${PATIENTS:-1} -brokers=${BROKERS:-localhost:9092} -no-kafka=${NO_KAFKA:-false}
+CMD /simulator \
+  -patients=${PATIENTS:-1} \
+  -brokers=${BROKERS:-localhost:9092} \
+  -no-kafka=${NO_KAFKA:-false} \
+  -schema-registry=${SCHEMA_REGISTRY_URL:-http://localhost:8081}
