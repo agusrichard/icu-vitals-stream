@@ -88,6 +88,20 @@ services:
       - ./scripts:/scripts
     entrypoint: [ "/bin/sh", "/scripts/register_schemas.sh" ]
     restart: "no"
+  kafka-init:
+    image: confluentinc/cp-kafka:8.2.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: |
+      "
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic vitals.raw     --partitions 6 --replication-factor 1 --config retention.ms=3600000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic vitals.scored  --partitions 1 --replication-factor 1 --config retention.ms=3600000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic vitals.alerts  --partitions 1 --replication-factor 1 --config retention.ms=3600000
+      echo 'Topics created.'
+      "
+    restart: "no"
 volumes:
   kafka-data:
   timescaledb-data:
