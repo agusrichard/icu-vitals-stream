@@ -27,7 +27,7 @@ func NewPatient(p producer.Producer) *Patient {
 
 func (p *Patient) Run(ctx context.Context) {
 	internal.LogInfo("Start running patient %s streaming...\n", p.ID)
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	enc := json.NewEncoder(os.Stdout)
