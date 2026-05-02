@@ -10,7 +10,7 @@ pub fn score_rr(rr: i32) -> u8 {
     }
 }
 
-pub fn score_spo2(spo2: i32, supplemental_o2: bool) -> u8 {
+pub fn score_spo2(spo2: i32) -> u8 {
     // Scale 1 (no COPD): standard thresholds
     match spo2 {
         ..=91  => 3,
@@ -73,7 +73,7 @@ pub struct News2Result {
 pub fn score(v: &VitalSigns) -> News2Result {
     let scores = [
         score_rr(v.respiration_rate),
-        score_spo2(v.oxygen_saturation, v.supplemental_o2),
+        score_spo2(v.oxygen_saturation),
         score_supplemental_o2(v.supplemental_o2),
         score_temp(v.temperature),
         score_bp(v.systolic_bp),
@@ -156,26 +156,26 @@ mod tests {
 
     #[test]
     fn spo2_boundary_critical() {
-        assert_eq!(score_spo2(91, false), 3);
-        assert_eq!(score_spo2(80, false), 3);
+        assert_eq!(score_spo2(91), 3);
+        assert_eq!(score_spo2(80), 3);
     }
 
     #[test]
     fn spo2_boundary_low() {
-        assert_eq!(score_spo2(92, false), 2);
-        assert_eq!(score_spo2(93, false), 2);
+        assert_eq!(score_spo2(92), 2);
+        assert_eq!(score_spo2(93), 2);
     }
 
     #[test]
     fn spo2_boundary_borderline() {
-        assert_eq!(score_spo2(94, false), 1);
-        assert_eq!(score_spo2(95, false), 1);
+        assert_eq!(score_spo2(94), 1);
+        assert_eq!(score_spo2(95), 1);
     }
 
     #[test]
     fn spo2_boundary_normal() {
-        assert_eq!(score_spo2(96, false), 0);
-        assert_eq!(score_spo2(100, false), 0);
+        assert_eq!(score_spo2(96), 0);
+        assert_eq!(score_spo2(100), 0);
     }
 
     // --- score_supplemental_o2 ---

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use crate::alert::{emit_alert, AlertEvent};
+use crate::db::{insert_alert, insert_scored_reading};
 use crate::news2;
 use crate::vitals::VitalSigns;
 use crate::ScorerContext;
@@ -12,6 +13,9 @@ pub async fn process_patient(vitals: VitalSigns, ctx: Arc<ScorerContext>) {
     entry.last_tier = Some(result.tier.clone());
     drop(entry);
 
+    if let Err(e) = insert_scored_reading(&ctx.pool, &vitals, &result).await {
+        tracing::warn!("insert_scored_reading failed: {}", e);
+    }
     if prev_tier.as_ref() != Some(&result.tier)
         && let Some(prev) = prev_tier
     {
@@ -24,6 +28,9 @@ pub async fn process_patient(vitals: VitalSigns, ctx: Arc<ScorerContext>) {
         };
         if let Err(e) = emit_alert(&ctx.alert_producer, &ctx.alert_schema, &alert).await {
             tracing::warn!("alert emit failed: {}", e);
+        }
+        if let Err(e) = insert_alert(&ctx.pool, &alert).await {
+            tracing::warn!("insert_alert failed: {}", e);
         }
     }
 }

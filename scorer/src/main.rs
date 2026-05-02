@@ -4,6 +4,7 @@ pub mod state;
 pub mod alert;
 pub mod patient;
 pub mod schema;
+pub mod db;
 
 use std::sync::Arc;
 use apache_avro::from_value;
@@ -12,6 +13,7 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::ClientConfig;
 use rdkafka::message::Message;
 use rdkafka::producer::FutureProducer;
+use sqlx::{Pool, Postgres};
 use vitals::VitalSigns;
 use state::StateStore;
 use patient::process_patient;
@@ -21,6 +23,13 @@ pub struct ScorerContext {
     pub alert_producer: FutureProducer,
     pub alert_schema: RegisteredSchema,
     pub state: StateStore,
+    pub pool: Pool<Postgres>
+}
+
+async fn connect() -> anyhow::Result<Pool<Postgres>> {
+    let db_url = std::env::var("DATABASE_URL")?;
+    let pool = sqlx::PgPool::connect(&db_url).await?;
+    Ok(pool)
 }
 
 async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str, ctx: Arc<ScorerContext>) -> anyhow::Result<()> {
@@ -69,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
             .create()?,
         alert_schema: RegisteredSchema::new(&schema_registry_url, "vitals.alerts-value").await?,
         state: DashMap::new(),
+        pool: connect().await?
     });
 
     run_consumer(&brokers, &group_id, &schema_registry_url, ctx).await
@@ -87,6 +97,7 @@ mod tests {
                 .unwrap(),
             alert_schema: RegisteredSchema::dummy(),
             state: DashMap::new(),
+            pool: sqlx::PgPool::connect_lazy("postgresql://icu:icu@localhost:5433/icu").unwrap(),
         })
     }
 
@@ -147,5 +158,25 @@ mod tests {
 
         assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
         assert_eq!(ctx.state.get("p2").unwrap().last_tier, Some(News2Tier::High));
+    }
+
+    #[tokio::test]
+    async fn no_alert_on_first_reading() {
+        // prev_tier is None on first call — the alert condition requires Some(prev),
+        // so no alert path is entered. State must be set and no extra entries created.
+        let ctx = make_ctx();
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
+        assert_eq!(ctx.state.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn no_alert_when_tier_unchanged() {
+        // Two consecutive readings with the same tier: prev_tier == current tier,
+        // so the alert condition is false and state stays at Low.
+        let ctx = make_ctx();
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
     }
 }
