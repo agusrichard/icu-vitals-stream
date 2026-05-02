@@ -1,11 +1,15 @@
 pub mod vitals;
 pub mod news2;
+pub mod state;
 
+use std::sync::Arc;
 use apache_avro::from_value;
+use dashmap::DashMap;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::ClientConfig;
 use rdkafka::message::Message;
 use vitals::VitalSigns;
+use crate::state::StateStore;
 
 async fn fetch_schema(sr_url: &str, subject: &str) -> anyhow::Result<apache_avro::Schema> {
     let resp: serde_json::Value =
@@ -17,12 +21,18 @@ async fn fetch_schema(sr_url: &str, subject: &str) -> anyhow::Result<apache_avro
     Ok(apache_avro::Schema::parse_str(schema_str)?)
 }
 
-async fn process_patient(vitals: VitalSigns) {
+async fn process_patient(vitals: VitalSigns, state: &Arc<StateStore>) {
     tracing::info!(patient_id = %vitals.patient_id, "received vitals");
+    let result = news2::score(&vitals);
+    let mut entry = state.entry(vitals.patient_id.clone()).or_default();
+    let prev_tier = entry.last_tier.clone();
+    entry.last_tier = Some(result.tier.clone());
+    drop(entry);
 }
 
-async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str) -> anyhow::Result<()> {
+async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str, state: &Arc<StateStore>) -> anyhow::Result<()> {
     let schema = fetch_schema(schema_registry_url, "vitals.raw-value").await?;
+    let state: Arc<StateStore> = Arc::new(DashMap::new());
 
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", group_id)
@@ -42,7 +52,7 @@ async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str) 
                     match apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(avro_bytes), None)
                         .and_then(|v| from_value::<VitalSigns>(&v))
                     {
-                        Ok(vitals) => process_patient(vitals).await,
+                        Ok(vitals) => process_patient(vitals, &state).await,
                         Err(e) => tracing::warn!("decode error: {}", e),
                     }
                 }
@@ -60,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let brokers = std::env::var("BROKERS").unwrap_or_else(|_| "localhost:9092".to_string());
     let group_id = std::env::var("GROUP_ID").unwrap_or_else(|_| "scorer".to_string());
     let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+    let state: Arc<StateStore> = Arc::new(DashMap::new());
 
-    run_consumer(&brokers, &group_id, &schema_registry_url).await
+    run_consumer(&brokers, &group_id, &schema_registry_url, &state).await
 }
