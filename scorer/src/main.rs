@@ -1,6 +1,9 @@
 pub mod vitals;
 pub mod news2;
 pub mod state;
+pub mod alert;
+pub mod patient;
+pub mod schema;
 
 use std::sync::Arc;
 use apache_avro::from_value;
@@ -8,30 +11,20 @@ use dashmap::DashMap;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::ClientConfig;
 use rdkafka::message::Message;
+use rdkafka::producer::FutureProducer;
 use vitals::VitalSigns;
-use crate::state::StateStore;
+use state::StateStore;
+use patient::process_patient;
+use schema::RegisteredSchema;
 
-async fn fetch_schema(sr_url: &str, subject: &str) -> anyhow::Result<apache_avro::Schema> {
-    let resp: serde_json::Value =
-        reqwest::get(format!("{}/subjects/{}/versions/latest", sr_url, subject))
-            .await?
-            .json()
-            .await?;
-    let schema_str = resp["schema"].as_str().ok_or_else(|| anyhow::anyhow!("missing schema field"))?;
-    Ok(apache_avro::Schema::parse_str(schema_str)?)
+pub struct ScorerContext {
+    pub alert_producer: FutureProducer,
+    pub alert_schema: RegisteredSchema,
+    pub state: StateStore,
 }
 
-async fn process_patient(vitals: VitalSigns, state: &Arc<StateStore>) {
-    tracing::info!(patient_id = %vitals.patient_id, "received vitals");
-    let result = news2::score(&vitals);
-    let mut entry = state.entry(vitals.patient_id.clone()).or_default();
-    let _prev_tier = entry.last_tier.clone();
-    entry.last_tier = Some(result.tier.clone());
-    drop(entry);
-}
-
-async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str, state: &Arc<StateStore>) -> anyhow::Result<()> {
-    let schema = fetch_schema(schema_registry_url, "vitals.raw-value").await?;
+async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str, ctx: Arc<ScorerContext>) -> anyhow::Result<()> {
+    let vitals_schema = RegisteredSchema::new(schema_registry_url, "vitals.raw-value").await?;
 
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", group_id)
@@ -48,10 +41,10 @@ async fn run_consumer(brokers: &str, group_id: &str, schema_registry_url: &str, 
                 // Strip Confluent wire format header: 0x00 magic byte + 4-byte schema ID
                 if payload.len() > 5 && payload[0] == 0x00 {
                     let avro_bytes = &payload[5..];
-                    match apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(avro_bytes), None)
+                    match apache_avro::from_avro_datum(&vitals_schema.schema, &mut std::io::Cursor::new(avro_bytes), None)
                         .and_then(|v| from_value::<VitalSigns>(&v))
                     {
-                        Ok(vitals) => process_patient(vitals, &state).await,
+                        Ok(vitals) => process_patient(vitals, Arc::clone(&ctx)).await,
                         Err(e) => tracing::warn!("decode error: {}", e),
                     }
                 }
@@ -69,15 +62,33 @@ async fn main() -> anyhow::Result<()> {
     let brokers = std::env::var("BROKERS").unwrap_or_else(|_| "localhost:9092".to_string());
     let group_id = std::env::var("GROUP_ID").unwrap_or_else(|_| "scorer".to_string());
     let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
-    let state: Arc<StateStore> = Arc::new(DashMap::new());
 
-    run_consumer(&brokers, &group_id, &schema_registry_url, &state).await
+    let ctx = Arc::new(ScorerContext {
+        alert_producer: ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .create()?,
+        alert_schema: RegisteredSchema::new(&schema_registry_url, "vitals.alerts-value").await?,
+        state: DashMap::new(),
+    });
+
+    run_consumer(&brokers, &group_id, &schema_registry_url, ctx).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::news2::News2Tier;
+
+    fn make_ctx() -> Arc<ScorerContext> {
+        Arc::new(ScorerContext {
+            alert_producer: ClientConfig::new()
+                .set("bootstrap.servers", "localhost:9092")
+                .create()
+                .unwrap(),
+            alert_schema: RegisteredSchema::dummy(),
+            state: DashMap::new(),
+        })
+    }
 
     fn normal_vitals(patient_id: &str) -> VitalSigns {
         VitalSigns {
@@ -111,30 +122,30 @@ mod tests {
 
     #[tokio::test]
     async fn process_patient_sets_initial_state() {
-        let state: Arc<StateStore> = Arc::new(DashMap::new());
-        process_patient(normal_vitals("p1"), &state).await;
-        assert_eq!(state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
+        let ctx = make_ctx();
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
     }
 
     #[tokio::test]
     async fn process_patient_updates_state_between_readings() {
-        let state: Arc<StateStore> = Arc::new(DashMap::new());
+        let ctx = make_ctx();
 
-        process_patient(normal_vitals("p1"), &state).await;
-        assert_eq!(state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
 
-        process_patient(critical_vitals("p1"), &state).await;
-        assert_eq!(state.get("p1").unwrap().last_tier, Some(News2Tier::High));
+        process_patient(critical_vitals("p1"), Arc::clone(&ctx)).await;
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::High));
     }
 
     #[tokio::test]
     async fn process_patient_isolates_state_per_patient() {
-        let state: Arc<StateStore> = Arc::new(DashMap::new());
+        let ctx = make_ctx();
 
-        process_patient(normal_vitals("p1"), &state).await;
-        process_patient(critical_vitals("p2"), &state).await;
+        process_patient(normal_vitals("p1"), Arc::clone(&ctx)).await;
+        process_patient(critical_vitals("p2"), Arc::clone(&ctx)).await;
 
-        assert_eq!(state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
-        assert_eq!(state.get("p2").unwrap().last_tier, Some(News2Tier::High));
+        assert_eq!(ctx.state.get("p1").unwrap().last_tier, Some(News2Tier::Low));
+        assert_eq!(ctx.state.get("p2").unwrap().last_tier, Some(News2Tier::High));
     }
 }
