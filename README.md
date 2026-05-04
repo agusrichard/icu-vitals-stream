@@ -290,6 +290,104 @@ End-stage sepsis with cardiovascular collapse. The infection is now refractory t
 
 ---
 
+## Simulator State Transitions
+
+The state machine transitions states probabilistically each tick (see `simulator/internal/state.go`). Without additional handling, each transition would be an abrupt jump — one tick the patient looks Stable, the next they look fully septic. That produces data with no pre-deterioration signal for the ML model to learn from.
+
+To fix this, the simulator uses a **drift mechanism**: when a state transition occurs, vital sign parameters do not jump immediately to the new state's target ranges. Instead, on each tick, every continuous parameter moves a fraction of the remaining gap toward the new state's centre value, with a small noise term added:
+
+```
+new_value = prev_value + rate × (target_centre − prev_value) + noise
+```
+
+The drift rate varies by transition type to reflect clinical reality:
+
+| Transition type | Rate | Rationale |
+|---|---|---|
+| Any → Stable (recovery) | 0.10 | Recovery is gradual — hours to days in real ICUs |
+| Stable → any deteriorating | 0.20 | Acute deterioration builds over tens of minutes |
+| Any → SepticShock | 0.30 | Cardiovascular collapse can be rapid |
+| SepticShock → any (partial recovery) | 0.10 | Shock recovery is slow even with treatment |
+
+With a 5-second tick interval and a rate of 0.20, a patient is approximately 67% of the way to the new state after 5 ticks (25 seconds) and 90% after 10 ticks (50 seconds). A 5-minute rolling window therefore captures the full drift trajectory, giving the ML model a genuine pre-deterioration signal — rising heart rate and falling blood pressure while absolute values are still within low-NEWS2 thresholds.
+
+All 30 non-self transitions are covered by the same formula. The source state is irrelevant; only the destination determines the target centre and drift rate. This means recovery trajectories (DeterioratingSepsis → Stable) and cross-deterioration transitions (DeterioratingRespiratory → DeterioratingSepsis) are all handled without per-transition logic.
+
+---
+
+## Analytics Pipeline
+
+### 5-Minute Streaming Aggregates
+
+**Source:** `vitals.raw`
+**Granularity:** one row per patient per 5-minute tumbling window
+**Sink:** Delta Lake on MinIO (ML feature store)
+
+| Field | Description |
+|---|---|
+| `patient_id` | Patient identifier |
+| `window_start`, `window_end` | Window boundaries |
+| `hr_mean`, `hr_min`, `hr_max`, `hr_stddev` | Heart rate distribution across the window |
+| `hr_slope` | Heart rate trend (bpm/min) — rising slope is a pre-sepsis signal |
+| `rr_mean`, `rr_min`, `rr_max`, `rr_stddev` | Respiratory rate distribution |
+| `rr_slope` | Respiratory rate trend — earliest parameter to rise in deterioration |
+| `spo2_mean`, `spo2_min`, `spo2_stddev` | SpO₂ distribution (min captures the dangerous extreme) |
+| `spo2_slope` | SpO₂ trend — negative slope indicates worsening oxygenation |
+| `sbp_mean`, `sbp_min`, `sbp_stddev` | Systolic BP distribution |
+| `sbp_slope` | Systolic BP trend — falling slope indicates haemodynamic compromise |
+| `temp_mean`, `temp_stddev` | Temperature distribution (distinguishes sepsis from cardiac deterioration) |
+| `on_o2_fraction` | Fraction of readings in the window with supplemental O₂ active |
+| `dominant_consciousness` | Mode of consciousness level across the window |
+| `reading_count` | Number of readings in the window (data completeness check) |
+| `simulator_state` | Clinical state label from the most recent reading — ground truth for ML |
+
+Slope is the critical feature class. It is computed as the linear regression coefficient across all readings in the window (or equivalently `(last_value − first_value) / window_duration_minutes`). Because the simulator uses drift, slope rises smoothly over several ticks before absolute values cross any NEWS2 threshold — that directional signal is what enables early prediction.
+
+PySpark Structured Streaming reads from `vitals.raw` with a 10-second watermark for late data and writes each completed window to Delta Lake using a 5-minute tumbling window keyed by `patient_id`.
+
+---
+
+### 1-Hour Streaming Aggregates
+
+**Source:** `vitals.scored`
+**Granularity:** one row per ward per 1-hour tumbling window
+**Sink:** Delta Lake on MinIO (Grafana ward KPIs dashboard)
+
+| Field | Description |
+|---|---|
+| `window_start`, `window_end` | Window boundaries |
+| `patients_low` | Count of patients with NEWS2 score 0–4 during the hour |
+| `patients_medium` | Count of patients with NEWS2 score 5–6 during the hour |
+| `patients_high` | Count of patients with NEWS2 score ≥ 7 during the hour |
+| `alerts_fired` | Total deterioration alerts fired across the ward in the hour |
+| `avg_news2_score` | Ward-average NEWS2 score |
+| `max_news2_score` | Highest NEWS2 score observed across any patient in the hour |
+| `dominant_state` | Most common clinical state across all patients and readings |
+
+This is ward-level, not per-patient. The consumer is the Grafana ward KPIs dashboard — a charge nurse view rather than a bedside view. The 1-hour granularity smooths transient spikes and surfaces sustained trends: is the ward getting sicker overall, or are high-score patients recovering? The `patients_high` count and `alerts_fired` are the primary operational signals.
+
+---
+
+### ML Deterioration Prediction Model
+
+**Goal:** predict a patient's clinical state from a 5-minute vital sign trajectory, earlier than NEWS2 thresholds would fire.
+
+**Training data:** 5-minute aggregate windows from Delta Lake, one row per patient per window.
+
+**Features:** all aggregate and slope fields from the 5-minute window schema — `hr_mean`, `hr_slope`, `rr_mean`, `rr_slope`, `spo2_min`, `spo2_slope`, `sbp_mean`, `sbp_min`, `sbp_slope`, `temp_mean`, `on_o2_fraction`, and `dominant_consciousness`.
+
+**Label:** `simulator_state` of the most recent reading in the window (6-class: Stable, DeterioratingSepsis, DeterioratingRespiratory, DeterioratingCardiac, PostOpRecovering, SepticShock).
+
+**Algorithm:** Gradient Boosted Trees (GBT) via Spark MLlib.
+
+GBT was chosen because it captures non-linear interactions between features — rising HR combined with falling BP and rising RR together carry more information than each parameter in isolation, and GBT learns those compound patterns without requiring feature normalisation. It also produces feature importances, which makes it possible to verify the model is learning clinically meaningful signals (`hr_slope` and `sbp_slope` should rank highly for sepsis, `spo2_slope` for respiratory deterioration).
+
+**Training loop:** a nightly batch job reads the last N days of 5-minute aggregate windows from Delta Lake, encodes the label as an integer, trains GBT, and saves the model artefact back to Delta Lake / MinIO. A separate inference job loads the saved model and scores live windows from the feature store.
+
+**Why early detection is achievable:** during a Stable→Sepsis transition with drift rate 0.20, a 5-minute window spanning the transition will contain readings from both sides. The absolute values may still be borderline-normal, but the slope features will be clearly directional. The model is trained on thousands of such windows and learns: "this slope signature, even with borderline absolute values, predicts DETERIORATING_SEPSIS." That is the signal NEWS2 cannot produce from a single snapshot.
+
+---
+
 ## Tech Stack
 
 ### Data Generation — Go
