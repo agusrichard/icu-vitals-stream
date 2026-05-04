@@ -19,6 +19,76 @@ type VitalSigns struct {
 	ConsciousnessLevel ConsciousnessLevel `json:"consciousness_level"`
 }
 
+type vitalTargets struct {
+	respirationRate  float64
+	oxygenSaturation float64
+	temperature      float64
+	systolicBP       float64
+	heartRate        float64
+}
+
+var stateTargetCenters = map[SimulatorState]vitalTargets{
+	Stable: {
+		respirationRate:  16,
+		oxygenSaturation: 97,
+		temperature:      36.65,
+		systolicBP:       120,
+		heartRate:        70,
+	},
+	DeterioratingSepsis: {
+		respirationRate:  25,
+		oxygenSaturation: 95,
+		temperature:      39.25,
+		systolicBP:       95,
+		heartRate:        120,
+	},
+	DeterioratingRespiratory: {
+		respirationRate:  30,
+		oxygenSaturation: 90.5,
+		temperature:      37.0,
+		systolicBP:       115,
+		heartRate:        105,
+	},
+	DeterioratingCardiac: {
+		respirationRate:  22,
+		oxygenSaturation: 94,
+		temperature:      36.5,
+		systolicBP:       90,
+		heartRate:        125,
+	},
+	PostOpRecovering: {
+		respirationRate:  18,
+		oxygenSaturation: 95,
+		temperature:      37.3,
+		systolicBP:       110,
+		heartRate:        85,
+	},
+	SepticShock: {
+		respirationRate:  31.5,
+		oxygenSaturation: 88,
+		temperature:      39.75,
+		systolicBP:       72.5,
+		heartRate:        140,
+	},
+}
+
+var driftRates = map[SimulatorState]float64{
+	Stable:                   0.10,
+	DeterioratingSepsis:      0.20,
+	DeterioratingRespiratory: 0.20,
+	DeterioratingCardiac:     0.20,
+	PostOpRecovering:         0.15,
+	SepticShock:              0.30,
+}
+
+var noiseAmplitudes = vitalTargets{
+	respirationRate:  1,
+	oxygenSaturation: 1,
+	temperature:      0.1,
+	systolicBP:       3,
+	heartRate:        3,
+}
+
 func SampleVitals(patientID string, state SimulatorState) VitalSigns {
 	return VitalSigns{
 		PatientID:          patientID,
