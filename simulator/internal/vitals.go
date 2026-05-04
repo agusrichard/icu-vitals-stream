@@ -19,7 +19,77 @@ type VitalSigns struct {
 	ConsciousnessLevel ConsciousnessLevel `json:"consciousness_level"`
 }
 
-func SampleVitals(patientID string, state SimulatorState) VitalSigns {
+type vitalTargets struct {
+	respirationRate  float64
+	oxygenSaturation float64
+	temperature      float64
+	systolicBP       float64
+	heartRate        float64
+}
+
+var stateTargetCenters = map[SimulatorState]vitalTargets{
+	Stable: {
+		respirationRate:  16,
+		oxygenSaturation: 97,
+		temperature:      36.65,
+		systolicBP:       120,
+		heartRate:        70,
+	},
+	DeterioratingSepsis: {
+		respirationRate:  25,
+		oxygenSaturation: 95,
+		temperature:      39.25,
+		systolicBP:       95,
+		heartRate:        120,
+	},
+	DeterioratingRespiratory: {
+		respirationRate:  30,
+		oxygenSaturation: 90.5,
+		temperature:      37.0,
+		systolicBP:       115,
+		heartRate:        105,
+	},
+	DeterioratingCardiac: {
+		respirationRate:  22,
+		oxygenSaturation: 94,
+		temperature:      36.5,
+		systolicBP:       90,
+		heartRate:        125,
+	},
+	PostOpRecovering: {
+		respirationRate:  18,
+		oxygenSaturation: 95,
+		temperature:      37.3,
+		systolicBP:       110,
+		heartRate:        85,
+	},
+	SepticShock: {
+		respirationRate:  31.5,
+		oxygenSaturation: 88,
+		temperature:      39.75,
+		systolicBP:       72.5,
+		heartRate:        140,
+	},
+}
+
+var driftRates = map[SimulatorState]float64{
+	Stable:                   0.10,
+	DeterioratingSepsis:      0.20,
+	DeterioratingRespiratory: 0.20,
+	DeterioratingCardiac:     0.20,
+	PostOpRecovering:         0.15,
+	SepticShock:              0.30,
+}
+
+var noiseAmplitudes = vitalTargets{
+	respirationRate:  1,
+	oxygenSaturation: 1,
+	temperature:      0.1,
+	systolicBP:       3,
+	heartRate:        3,
+}
+
+func InitVitals(patientID string, state SimulatorState) VitalSigns {
 	return VitalSigns{
 		PatientID:          patientID,
 		Timestamp:          time.Now().UTC(),
@@ -31,6 +101,53 @@ func SampleVitals(patientID string, state SimulatorState) VitalSigns {
 		SystolicBP:         sampleBP(state),
 		HeartRate:          sampleHR(state),
 		ConsciousnessLevel: sampleConsciousness(state),
+	}
+}
+
+func DriftVitals(patientID string, state SimulatorState, prev VitalSigns) VitalSigns {
+	targets := stateTargetCenters[state]
+	rate := driftRates[state]
+
+	noise := func(amplitude float64) float64 {
+		return rand.Float64()*2*amplitude - amplitude
+	}
+
+	drift := func(prev, target, amplitude float64) float64 {
+		return prev + rate*(target-prev) + noise(amplitude)
+	}
+
+	clamp := func(v, min, max float64) float64 {
+		if v < min {
+			return min
+		}
+		if v > max {
+			return max
+		}
+		return v
+	}
+
+	rr := clamp(drift(float64(prev.RespirationRate), targets.respirationRate, noiseAmplitudes.respirationRate), 4, 60)
+	spo2 := clamp(drift(float64(prev.OxygenSaturation), targets.oxygenSaturation, noiseAmplitudes.oxygenSaturation), 60, 100)
+	temp := clamp(drift(prev.Temperature, targets.temperature, noiseAmplitudes.temperature), 32.0, 43.0)
+	sbp := clamp(drift(float64(prev.SystolicBP), targets.systolicBP, noiseAmplitudes.systolicBP), 40, 260)
+	hr := clamp(drift(float64(prev.HeartRate), targets.heartRate, noiseAmplitudes.heartRate), 20, 220)
+
+	consciousness := prev.ConsciousnessLevel
+	if rand.Float64() < 0.15 {
+		consciousness = sampleConsciousness(state)
+	}
+
+	return VitalSigns{
+		PatientID:          patientID,
+		Timestamp:          time.Now().UTC(),
+		SimulatorState:     state,
+		RespirationRate:    int(rr),
+		OxygenSaturation:   int(spo2),
+		SupplementalO2:     sampleSupplementalO2(state),
+		Temperature:        temp,
+		SystolicBP:         int(sbp),
+		HeartRate:          int(hr),
+		ConsciousnessLevel: consciousness,
 	}
 }
 

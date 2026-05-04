@@ -12,9 +12,11 @@ import (
 )
 
 type Patient struct {
-	ID       string
-	State    internal.SimulatorState
-	producer producer.Producer
+	ID            string
+	State         internal.SimulatorState
+	producer      producer.Producer
+	currentVitals internal.VitalSigns
+	initialized   bool
 }
 
 func NewPatient(p producer.Producer) *Patient {
@@ -41,8 +43,8 @@ func (p *Patient) Run(ctx context.Context) {
 				return
 			}
 			if err := p.producer.Send(vitals); err != nil {
-					internal.LogErr(err, "send error patient %s", p.ID)
-				}
+				internal.LogErr(err, "send error patient %s", p.ID)
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -51,5 +53,11 @@ func (p *Patient) Run(ctx context.Context) {
 
 func (p *Patient) sampleVitals() internal.VitalSigns {
 	p.State = internal.NextState(p.State)
-	return internal.SampleVitals(p.ID, p.State)
+	if !p.initialized {
+		p.currentVitals = internal.InitVitals(p.ID, p.State)
+		p.initialized = true
+	} else {
+		p.currentVitals = internal.DriftVitals(p.ID, p.State, p.currentVitals)
+	}
+	return p.currentVitals
 }
