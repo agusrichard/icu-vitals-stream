@@ -89,7 +89,7 @@ var noiseAmplitudes = vitalTargets{
 	heartRate:        3,
 }
 
-func SampleVitals(patientID string, state SimulatorState) VitalSigns {
+func InitVitals(patientID string, state SimulatorState) VitalSigns {
 	return VitalSigns{
 		PatientID:          patientID,
 		Timestamp:          time.Now().UTC(),
@@ -101,6 +101,53 @@ func SampleVitals(patientID string, state SimulatorState) VitalSigns {
 		SystolicBP:         sampleBP(state),
 		HeartRate:          sampleHR(state),
 		ConsciousnessLevel: sampleConsciousness(state),
+	}
+}
+
+func DriftVitals(patientID string, state SimulatorState, prev VitalSigns) VitalSigns {
+	targets := stateTargetCenters[state]
+	rate := driftRates[state]
+
+	noise := func(amplitude float64) float64 {
+		return rand.Float64()*2*amplitude - amplitude
+	}
+
+	drift := func(prev, target, amplitude float64) float64 {
+		return prev + rate*(target-prev) + noise(amplitude)
+	}
+
+	clamp := func(v, min, max float64) float64 {
+		if v < min {
+			return min
+		}
+		if v > max {
+			return max
+		}
+		return v
+	}
+
+	rr := clamp(drift(float64(prev.RespirationRate), targets.respirationRate, noiseAmplitudes.respirationRate), 4, 60)
+	spo2 := clamp(drift(float64(prev.OxygenSaturation), targets.oxygenSaturation, noiseAmplitudes.oxygenSaturation), 60, 100)
+	temp := clamp(drift(prev.Temperature, targets.temperature, noiseAmplitudes.temperature), 32.0, 43.0)
+	sbp := clamp(drift(float64(prev.SystolicBP), targets.systolicBP, noiseAmplitudes.systolicBP), 40, 260)
+	hr := clamp(drift(float64(prev.HeartRate), targets.heartRate, noiseAmplitudes.heartRate), 20, 220)
+
+	consciousness := prev.ConsciousnessLevel
+	if rand.Float64() < 0.15 {
+		consciousness = sampleConsciousness(state)
+	}
+
+	return VitalSigns{
+		PatientID:          patientID,
+		Timestamp:          time.Now().UTC(),
+		SimulatorState:     state,
+		RespirationRate:    int(rr),
+		OxygenSaturation:   int(spo2),
+		SupplementalO2:     sampleSupplementalO2(state),
+		Temperature:        temp,
+		SystolicBP:         int(sbp),
+		HeartRate:          int(hr),
+		ConsciousnessLevel: consciousness,
 	}
 }
 
