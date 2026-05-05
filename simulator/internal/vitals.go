@@ -271,25 +271,15 @@ func sampleConsciousness(state SimulatorState) ConsciousnessLevel {
 	case Stable, PostOpRecovering:
 		return Alert
 	case DeterioratingSepsis:
-		// NewConfusion is the earliest and most important sepsis marker
-		switch {
-		case r < 0.60:
+		if r < 0.70 {
 			return Alert
-		case r < 0.85:
-			return NewConfusion
-		default:
-			return Voice
 		}
+		return Voice
 	case DeterioratingRespiratory, DeterioratingCardiac:
-		// Hypoxia and low cerebral perfusion cause confusion before full unresponsiveness
-		switch {
-		case r < 0.70:
+		if r < 0.80 {
 			return Alert
-		case r < 0.90:
-			return NewConfusion
-		default:
-			return Voice
 		}
+		return Voice
 	case SepticShock:
 		// Too severe for mere confusion — cardiovascular collapse impairs brain perfusion deeply
 		switch {
