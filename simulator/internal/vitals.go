@@ -73,12 +73,12 @@ var stateTargetCenters = map[SimulatorState]vitalTargets{
 }
 
 var driftRates = map[SimulatorState]float64{
-	Stable:                   0.10,
-	DeterioratingSepsis:      0.20,
-	DeterioratingRespiratory: 0.20,
-	DeterioratingCardiac:     0.20,
-	PostOpRecovering:         0.15,
-	SepticShock:              0.30,
+	Stable:                   0.05,
+	DeterioratingSepsis:      0.05,
+	DeterioratingRespiratory: 0.05,
+	DeterioratingCardiac:     0.05,
+	PostOpRecovering:         0.07,
+	SepticShock:              0.10,
 }
 
 var noiseAmplitudes = vitalTargets{
@@ -271,25 +271,15 @@ func sampleConsciousness(state SimulatorState) ConsciousnessLevel {
 	case Stable, PostOpRecovering:
 		return Alert
 	case DeterioratingSepsis:
-		// NewConfusion is the earliest and most important sepsis marker
-		switch {
-		case r < 0.60:
+		if r < 0.70 {
 			return Alert
-		case r < 0.85:
-			return NewConfusion
-		default:
-			return Voice
 		}
+		return Voice
 	case DeterioratingRespiratory, DeterioratingCardiac:
-		// Hypoxia and low cerebral perfusion cause confusion before full unresponsiveness
-		switch {
-		case r < 0.70:
+		if r < 0.80 {
 			return Alert
-		case r < 0.90:
-			return NewConfusion
-		default:
-			return Voice
 		}
+		return Voice
 	case SepticShock:
 		// Too severe for mere confusion — cardiovascular collapse impairs brain perfusion deeply
 		switch {

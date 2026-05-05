@@ -294,22 +294,30 @@ End-stage sepsis with cardiovascular collapse. The infection is now refractory t
 
 The state machine transitions states probabilistically each tick (see `simulator/internal/state.go`). Without additional handling, each transition would be an abrupt jump — one tick the patient looks Stable, the next they look fully septic. That produces data with no pre-deterioration signal for the ML model to learn from.
 
+### Clinical transition constraints
+
+Not all transitions are valid. `PostOpRecovering` represents surgical recovery — a state a patient enters from the operating room, not from an acute deterioration episode. As a result:
+
+- **Stable** can transition to any deteriorating state but not to `PostOpRecovering` (surgery is an external event the simulator does not model).
+- **Deteriorating and SepticShock states** can recover to Stable or escalate to other deteriorating states, but not to `PostOpRecovering`.
+- **PostOpRecovering** transitions only outward: to Stable (recovery) or to any deteriorating state (post-op complication).
+
 To fix this, the simulator uses a **drift mechanism**: when a state transition occurs, vital sign parameters do not jump immediately to the new state's target ranges. Instead, on each tick, every continuous parameter moves a fraction of the remaining gap toward the new state's centre value, with a small noise term added:
 
 ```
 new_value = prev_value + rate × (target_centre − prev_value) + noise
 ```
 
-The drift rate varies by transition type to reflect clinical reality:
+The drift rate is fixed per destination state rather than per transition pair, because it is the target physiology — not the origin — that determines how fast the body moves toward a new equilibrium:
 
-| Transition type | Rate | Rationale |
+| Destination state | Rate | Rationale |
 |---|---|---|
-| Any → Stable (recovery) | 0.10 | Recovery is gradual — hours to days in real ICUs |
-| Stable → any deteriorating | 0.20 | Acute deterioration builds over tens of minutes |
-| Any → SepticShock | 0.30 | Cardiovascular collapse can be rapid |
-| SepticShock → any (partial recovery) | 0.10 | Shock recovery is slow even with treatment |
+| Stable | 0.05 | Recovery is gradual — vitals normalise over several minutes even with treatment |
+| Deteriorating Sepsis / Respiratory / Cardiac | 0.05 | Slow enough to produce a multi-minute pre-deterioration ramp the ML model can learn from |
+| Post-Op Recovering | 0.07 | Slightly faster — post-op stress is bounded and managed |
+| Septic Shock | 0.10 | Cardiovascular collapse accelerates faster than early deterioration |
 
-With a 5-second tick interval and a rate of 0.20, a patient is approximately 67% of the way to the new state after 5 ticks (25 seconds) and 90% after 10 ticks (50 seconds). A 5-minute rolling window therefore captures the full drift trajectory, giving the ML model a genuine pre-deterioration signal — rising heart rate and falling blood pressure while absolute values are still within low-NEWS2 thresholds.
+With a 5-second tick interval and a rate of 0.05, a patient reaches approximately 23% of the target state after 5 ticks (25 seconds), 64% after 20 ticks (100 seconds), and 78% after 30 ticks (150 seconds — 2.5 minutes). A 5-minute rolling window therefore captures most of the drift trajectory, giving the ML model a genuine pre-deterioration signal — rising heart rate and falling blood pressure while absolute values are still within low-NEWS2 thresholds.
 
 All 30 non-self transitions are covered by the same formula. The source state is irrelevant; only the destination determines the target centre and drift rate. This means recovery trajectories (DeterioratingSepsis → Stable) and cross-deterioration transitions (DeterioratingRespiratory → DeterioratingSepsis) are all handled without per-transition logic.
 
@@ -384,7 +392,7 @@ GBT was chosen because it captures non-linear interactions between features — 
 
 **Training loop:** a nightly batch job reads the last N days of 5-minute aggregate windows from Delta Lake, encodes the label as an integer, trains GBT, and saves the model artefact back to Delta Lake / MinIO. A separate inference job loads the saved model and scores live windows from the feature store.
 
-**Why early detection is achievable:** during a Stable→Sepsis transition with drift rate 0.20, a 5-minute window spanning the transition will contain readings from both sides. The absolute values may still be borderline-normal, but the slope features will be clearly directional. The model is trained on thousands of such windows and learns: "this slope signature, even with borderline absolute values, predicts DETERIORATING_SEPSIS." That is the signal NEWS2 cannot produce from a single snapshot.
+**Why early detection is achievable:** during a Stable→Sepsis transition with drift rate 0.05, a 5-minute window spanning the transition will contain readings from both sides. The absolute values may still be borderline-normal, but the slope features will be clearly directional — heart rate rising steadily, blood pressure drifting down — across 20–30 readings before any NEWS2 threshold is crossed. The model is trained on thousands of such windows and learns: "this slope signature, even with borderline absolute values, predicts DETERIORATING_SEPSIS." That is the signal NEWS2 cannot produce from a single snapshot.
 
 ---
 
