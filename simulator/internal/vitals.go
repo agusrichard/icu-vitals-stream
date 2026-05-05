@@ -73,12 +73,12 @@ var stateTargetCenters = map[SimulatorState]vitalTargets{
 }
 
 var driftRates = map[SimulatorState]float64{
-	Stable:                   0.10,
-	DeterioratingSepsis:      0.20,
-	DeterioratingRespiratory: 0.20,
-	DeterioratingCardiac:     0.20,
-	PostOpRecovering:         0.15,
-	SepticShock:              0.30,
+	Stable:                   0.05,
+	DeterioratingSepsis:      0.05,
+	DeterioratingRespiratory: 0.05,
+	DeterioratingCardiac:     0.05,
+	PostOpRecovering:         0.07,
+	SepticShock:              0.10,
 }
 
 var noiseAmplitudes = vitalTargets{
