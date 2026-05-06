@@ -155,6 +155,22 @@ services:
       exit 0
       "
     restart: "no"
+  pyspark:
+    image: apache/spark:4.1.1-python3
+    container_name: pyspark
+    entrypoint: /opt/spark/bin/spark-class
+    command: org.apache.spark.deploy.master.Master
+    depends_on:
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ../pyspark/jobs:/opt/spark/jobs
+    ports:
+      - "4040:4040"   # Spark UI
+      - "8080:8080"   # Spark master web UI
+    restart: unless-stopped
 volumes:
   kafka-data:
   timescaledb-data:
