@@ -5,3 +5,4 @@ PLANS.md
 simulator/simulator
 target
 .mcp.json
+__pycache__
