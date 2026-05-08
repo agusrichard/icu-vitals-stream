@@ -2,6 +2,7 @@ pub mod vitals;
 pub mod news2;
 pub mod state;
 pub mod alert;
+pub mod scored;
 pub mod patient;
 pub mod schema;
 pub mod db;
@@ -22,6 +23,8 @@ use schema::RegisteredSchema;
 pub struct ScorerContext {
     pub alert_producer: FutureProducer,
     pub alert_schema: RegisteredSchema,
+    pub scored_producer: FutureProducer,
+    pub scored_schema: RegisteredSchema,
     pub state: StateStore,
     pub pool: Pool<Postgres>
 }
@@ -77,6 +80,10 @@ async fn main() -> anyhow::Result<()> {
             .set("bootstrap.servers", &brokers)
             .create()?,
         alert_schema: RegisteredSchema::new(&schema_registry_url, "vitals.alerts-value").await?,
+        scored_producer: ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .create()?,
+        scored_schema: RegisteredSchema::new(&schema_registry_url, "vitals.scored-value").await?,
         state: DashMap::new(),
         pool: connect().await?
     });
@@ -96,6 +103,11 @@ mod tests {
                 .create()
                 .unwrap(),
             alert_schema: RegisteredSchema::dummy(),
+            scored_producer: ClientConfig::new()
+                .set("bootstrap.servers", "localhost:9092")
+                .create()
+                .unwrap(),
+            scored_schema: RegisteredSchema::dummy(),
             state: DashMap::new(),
             pool: sqlx::PgPool::connect_lazy("postgresql://icu:icu@localhost:5433/icu").unwrap(),
         })
