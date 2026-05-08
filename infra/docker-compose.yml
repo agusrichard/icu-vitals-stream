@@ -171,7 +171,25 @@ services:
       - "4040:4040"   # Spark UI
       - "8080:8080"   # Spark master web UI
     restart: unless-stopped
+  grafana:
+    image: grafana/grafana:13.0.1
+    container_name: grafana
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 volumes:
   kafka-data:
   timescaledb-data:
   minio-data:
+  grafana-data:
