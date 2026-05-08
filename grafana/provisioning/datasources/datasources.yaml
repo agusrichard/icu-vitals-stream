@@ -20,3 +20,6 @@ datasources:
     type: yesoreyeram-infinity-datasource
     uid: infinity
     editable: false
+    jsonData:
+      allowed_hosts:
+        - http://delta-reader:5000

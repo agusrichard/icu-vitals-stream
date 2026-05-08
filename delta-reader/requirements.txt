@@ -1,0 +1,4 @@
+deltalake==1.5.1
+pyarrow>=14.0.0
+pandas==2.2.3
+Flask==3.1.1
