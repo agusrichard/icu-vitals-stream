@@ -1,0 +1,427 @@
+{
+  "title": "Live Patient Vitals",
+  "uid": "patient-vitals",
+  "description": "Real-time vital signs and NEWS2 score for a selected patient — sourced from TimescaleDB scored_readings hypertable.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "tags": ["icu", "vitals"],
+  "links": [],
+  "annotations": { "list": [] },
+
+  "templating": {
+    "list": [
+      {
+        "name": "patient_id",
+        "label": "Patient",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "timescaledb" },
+        "query": "SELECT DISTINCT patient_id FROM scored_readings ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Current NEWS2 Score",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "orange", "value": 5 },
+              { "color": "red", "value": 7 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT news2_score FROM scored_readings WHERE patient_id = '$patient_id' ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Current NEWS2 Tier",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "Low":    { "index": 0, "text": "LOW",    "color": "yellow" },
+                "Medium": { "index": 1, "text": "MEDIUM", "color": "orange" },
+                "High":   { "index": 2, "text": "HIGH",   "color": "red"    }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT news2_tier FROM scored_readings WHERE patient_id = '$patient_id' ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Simulator State",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "STABLE":                    { "index": 0, "text": "Stable",                   "color": "green"  },
+                "DETERIORATING_SEPSIS":      { "index": 1, "text": "Deteriorating Sepsis",     "color": "orange" },
+                "DETERIORATING_RESPIRATORY": { "index": 2, "text": "Deteriorating Respiratory","color": "orange" },
+                "DETERIORATING_CARDIAC":     { "index": 3, "text": "Deteriorating Cardiac",    "color": "red"    },
+                "POST_OP_RECOVERING":        { "index": 4, "text": "Post Op Recovering",       "color": "blue"   },
+                "SEPTIC_SHOCK":              { "index": 5, "text": "Septic Shock",             "color": "red"    }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT simulator_state FROM scored_readings WHERE patient_id = '$patient_id' ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "NEWS2 Score",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "orange", "value": 5 },
+              { "color": "red",    "value": 7 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, news2_score FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Heart Rate (bpm)",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "drawStyle": "line", "spanNulls": false },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 91 },
+              { "color": "orange", "value": 111 },
+              { "color": "red",    "value": 131 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, heart_rate FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Respiration Rate (breaths/min)",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "drawStyle": "line", "spanNulls": false },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 21 },
+              { "color": "orange", "value": 25 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, respiration_rate FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Oxygen Saturation SpO2 (%)",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "drawStyle": "line", "spanNulls": false },
+          "min": 80,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 92 },
+              { "color": "yellow", "value": 95 },
+              { "color": "green",  "value": 96 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, oxygen_saturation FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Systolic BP (mmHg)",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "drawStyle": "line", "spanNulls": false },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 91 },
+              { "color": "green",  "value": 111 },
+              { "color": "yellow", "value": 220 },
+              { "color": "red",    "value": 221 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, systolic_bp FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Temperature (°C)",
+      "gridPos": { "x": 0, "y": 22, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "drawStyle": "line", "spanNulls": false },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue",   "value": null },
+              { "color": "green",  "value": 36.1 },
+              { "color": "yellow", "value": 38.1 },
+              { "color": "orange", "value": 39.1 },
+              { "color": "red",    "value": 40.0 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, temperature FROM scored_readings WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Recent Alerts (Tier Transitions)",
+      "gridPos": { "x": 12, "y": 22, "w": 12, "h": 6 },
+      "datasource": { "type": "postgres", "uid": "timescaledb" },
+      "options": {
+        "sortBy": [{ "desc": true, "displayName": "time" }],
+        "footer": { "show": false }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "new_tier" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Low":    { "index": 0, "text": "LOW",    "color": "yellow" },
+                      "Medium": { "index": 1, "text": "MEDIUM", "color": "orange" },
+                      "High":   { "index": 2, "text": "HIGH",   "color": "red"    }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "timescaledb" },
+          "rawSql": "SELECT time, previous_tier, new_tier, news2_score FROM alerts WHERE patient_id = '$patient_id' AND $__timeFilter(time) ORDER BY time DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+
+  ]
+}
