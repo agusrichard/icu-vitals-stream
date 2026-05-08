@@ -2,7 +2,7 @@ COMPOSE = docker compose -f infra/docker-compose.yml
 PYSPARK_PACKAGES = org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1,org.apache.spark:spark-avro_2.13:4.1.1,io.delta:delta-spark_4.1_2.13:4.1.0,org.apache.hadoop:hadoop-aws:3.4.1
 PYSPARK_JOBS_DIR = /opt/spark/jobs
 
-.PHONY: infra simulator all pyspark-submit-raw pyspark-submit-scored pyspark-stop
+.PHONY: infra simulator all pyspark-submit-raw pyspark-submit-scored pyspark-shell pyspark-stop
 
 infra:
 	$(COMPOSE) up --build schema-registry timescaledb pgweb schema-registry-init kafka-init
@@ -31,6 +31,19 @@ pyspark-submit-scored:
 		--packages '$(PYSPARK_PACKAGES)' \
 		--py-files '$(PYSPARK_JOBS_DIR)/shared.py' \
 		$(PYSPARK_JOBS_DIR)/vitals_scored_1hr_agg.py
+
+pyspark-shell:
+	docker exec -it pyspark /opt/spark/bin/pyspark \
+		--master 'local[*]' \
+		--conf 'spark.jars.ivy=/tmp/.ivy2' \
+		--packages '$(PYSPARK_PACKAGES)' \
+		--conf 'spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension' \
+		--conf 'spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog' \
+		--conf 'spark.hadoop.fs.s3a.endpoint=http://minio:9000' \
+		--conf 'spark.hadoop.fs.s3a.access.key=minioadmin' \
+		--conf 'spark.hadoop.fs.s3a.secret.key=minioadmin' \
+		--conf 'spark.hadoop.fs.s3a.path.style.access=true' \
+		--conf 'spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem'
 
 pyspark-stop:
 	pkill -f 'vitals_raw_5min_agg\|vitals_scored_1hr_agg' || true

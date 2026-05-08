@@ -1,17 +1,17 @@
 from pyspark.sql import functions as F
-from pyspark.sql.functions import col, window, avg, min, max, count
+from pyspark.sql.functions import col, window, avg, min, max, count, to_date
 from shared import create_spark_session, fetch_schema, read_kafka_avro_stream
 
 spark = create_spark_session("vitals-raw-5min-agg")
 schema_str = fetch_schema("vitals.raw-value")
 watermarked = (
     read_kafka_avro_stream(spark, "vitals.raw", schema_str)
-    .withWatermark("event_time", "2 minutes")
+    .withWatermark("event_time", "10 minutes")
 )
 
 agg = (
     watermarked
-    .groupBy(col("patient_id"), window(col("event_time"), "1 minutes"))
+    .groupBy(col("patient_id"), window(col("event_time"), "5 minutes"))
     .agg(
         avg("heart_rate").alias("avg_heart_rate"),
         avg("respiration_rate").alias("avg_respiration_rate"),
@@ -37,14 +37,16 @@ agg = (
     )
 )
 
+agg_partitioned = agg.withColumn("window_date", to_date(col("window_start")))
+
 query = (
-    agg.writeStream
+    agg_partitioned.writeStream
     .outputMode("append")
-    .format("console")
-    .option("truncate", False)
+    .format("delta")
     .option("checkpointLocation", "/tmp/checkpoints/vitals_raw_5min_agg")
+    .partitionBy("window_date")
     .trigger(processingTime="30 seconds")
-    .start()
+    .start("s3a://delta-lake/vitals_raw_5min_agg")
 )
 
 query.awaitTermination()
