@@ -171,6 +171,22 @@ services:
       - "4040:4040"   # Spark UI
       - "8080:8080"   # Spark master web UI
     restart: unless-stopped
+  delta-reader:
+    container_name: delta-reader
+    build:
+      context: ../delta-reader
+      dockerfile: Dockerfile
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - SCORED_1HR_TABLE=s3://delta-lake/vitals_scored_1hr_agg
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
   grafana:
     image: grafana/grafana:13.0.1
     container_name: grafana

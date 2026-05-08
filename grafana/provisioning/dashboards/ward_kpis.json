@@ -1,0 +1,334 @@
+{
+  "title": "Ward KPIs",
+  "uid": "ward-kpis",
+  "description": "Aggregate clinical metrics across all monitored patients — sourced from Delta Lake via the delta-reader service.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5m",
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "tags": ["icu", "ward", "kpis"],
+  "links": [
+    {
+      "title": "Live Patient Vitals",
+      "url": "/d/patient-vitals",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Patients",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": { "mode": "absolute", "steps": [] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/summary",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "total_patients", "text": "Total Patients", "type": "number" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "HIGH Risk Patients",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "thresholds": { "mode": "absolute", "steps": [] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/summary",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "high_count", "text": "HIGH Risk", "type": "number" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "MEDIUM Risk Patients",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "thresholds": { "mode": "absolute", "steps": [] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/summary",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "medium_count", "text": "MEDIUM Risk", "type": "number" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Ward Average NEWS2 Score",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "orange", "value": 5 },
+              { "color": "red",    "value": 7 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/summary",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "avg_news2_score", "text": "Avg NEWS2", "type": "number" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Ward Average NEWS2 Score Trend (last 24h)",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "orange", "value": 5 },
+              { "color": "red",    "value": 7 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/news2-trend",
+          "url_options": { "method": "GET" },
+          "format": "timeseries",
+          "root_selector": "",
+          "columns": [
+            { "selector": "window_start",    "text": "Time",      "type": "timestamp" },
+            { "selector": "avg_news2_score", "text": "Avg NEWS2", "type": "number" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Per-Patient Peak NEWS2 Score (latest hour)",
+      "gridPos": { "x": 0, "y": 12, "w": 14, "h": 10 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "orange", "value": 5 },
+              { "color": "red",    "value": 7 }
+            ]
+          },
+          "min": 0,
+          "max": 20
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/patient-ranks",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "patient_id",      "text": "Patient",   "type": "string" },
+            { "selector": "max_news2_score",  "text": "Peak NEWS2", "type": "number" },
+            { "selector": "news2_tier",       "text": "Tier",      "type": "string" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Patient Risk Ranking (latest hour window)",
+      "gridPos": { "x": 14, "y": 12, "w": 10, "h": 10 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "sortBy": [{ "desc": true, "displayName": "Peak NEWS2" }],
+        "footer": { "show": false }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Tier" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Low":    { "index": 0, "text": "LOW",    "color": "yellow" },
+                      "Medium": { "index": 1, "text": "MEDIUM", "color": "orange" },
+                      "High":   { "index": 2, "text": "HIGH",   "color": "red"    }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+          "type": "json",
+          "source": "url",
+          "url": "http://delta-reader:5000/api/ward/patient-ranks",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            { "selector": "patient_id",      "text": "Patient",   "type": "string" },
+            { "selector": "max_news2_score",  "text": "Peak NEWS2", "type": "number" },
+            { "selector": "news2_tier",       "text": "Tier",      "type": "string" },
+            { "selector": "simulator_state",  "text": "State",     "type": "string" }
+          ]
+        }
+      ]
+    }
+
+  ]
+}

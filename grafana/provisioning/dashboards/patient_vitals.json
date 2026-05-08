@@ -11,7 +11,15 @@
   "timepicker": {},
   "timezone": "browser",
   "tags": ["icu", "vitals"],
-  "links": [],
+  "links": [
+    {
+      "title": "Ward KPIs",
+      "url": "/d/ward-kpis",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
   "annotations": { "list": [] },
 
   "templating": {
