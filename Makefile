@@ -17,25 +17,15 @@ down:
 	$(COMPOSE) down -v
 
 pyspark-submit-raw:
-	docker exec pyspark /opt/spark/bin/spark-submit \
-		--master 'local[*]' \
-		--conf 'spark.jars.ivy=/tmp/.ivy2' \
-		--packages '$(PYSPARK_PACKAGES)' \
-		--py-files '$(PYSPARK_JOBS_DIR)/shared.py' \
-		$(PYSPARK_JOBS_DIR)/vitals_raw_5min_agg.py
+	$(COMPOSE) up -d pyspark-raw
 
 pyspark-submit-scored:
-	docker exec pyspark /opt/spark/bin/spark-submit \
-		--master 'local[*]' \
-		--conf 'spark.jars.ivy=/tmp/.ivy2' \
-		--packages '$(PYSPARK_PACKAGES)' \
-		--py-files '$(PYSPARK_JOBS_DIR)/shared.py' \
-		$(PYSPARK_JOBS_DIR)/vitals_scored_1hr_agg.py
+	$(COMPOSE) up -d pyspark-scored
 
 pyspark-shell:
 	docker exec -it pyspark /opt/spark/bin/pyspark \
 		--master 'local[*]' \
-		--conf 'spark.jars.ivy=/tmp/.ivy2' \
+		--conf 'spark.jars.ivy=/opt/.ivy2' \
 		--packages '$(PYSPARK_PACKAGES)' \
 		--conf 'spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension' \
 		--conf 'spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog' \
@@ -46,4 +36,4 @@ pyspark-shell:
 		--conf 'spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem'
 
 pyspark-stop:
-	pkill -f 'vitals_raw_5min_agg\|vitals_scored_1hr_agg' || true
+	$(COMPOSE) stop pyspark-raw pyspark-scored
