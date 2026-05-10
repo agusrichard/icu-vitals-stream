@@ -1,3 +1,19 @@
+x-pyspark-job: &pyspark-job
+  image: apache/spark:4.1.1-python3
+  user: root
+  entrypoint: /opt/spark/bin/spark-submit
+  depends_on:
+    kafka:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    schema-registry-init:
+      condition: service_completed_successfully
+  volumes:
+    - ../pyspark/jobs:/opt/spark/jobs
+    - spark-ivy-cache:/opt/.ivy2
+  restart: unless-stopped
+
 services:
   simulator:
     container_name: go-simulator
@@ -168,9 +184,38 @@ services:
     volumes:
       - ../pyspark/jobs:/opt/spark/jobs
     ports:
-      - "4040:4040"   # Spark UI
       - "8080:8080"   # Spark master web UI
     restart: unless-stopped
+  pyspark-raw:
+    <<: *pyspark-job
+    container_name: pyspark-raw
+    command:
+      - "--master"
+      - "local[*]"
+      - "--conf"
+      - "spark.jars.ivy=/opt/.ivy2"
+      - "--packages"
+      - "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1,org.apache.spark:spark-avro_2.13:4.1.1,io.delta:delta-spark_4.1_2.13:4.1.0,org.apache.hadoop:hadoop-aws:3.4.1"
+      - "--py-files"
+      - "/opt/spark/jobs/shared.py"
+      - "/opt/spark/jobs/vitals_raw_5min_agg.py"
+    ports:
+      - "4040:4040"   # Spark Application UI
+  pyspark-scored:
+    <<: *pyspark-job
+    container_name: pyspark-scored
+    command:
+      - "--master"
+      - "local[*]"
+      - "--conf"
+      - "spark.jars.ivy=/opt/.ivy2"
+      - "--packages"
+      - "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1,org.apache.spark:spark-avro_2.13:4.1.1,io.delta:delta-spark_4.1_2.13:4.1.0,org.apache.hadoop:hadoop-aws:3.4.1"
+      - "--py-files"
+      - "/opt/spark/jobs/shared.py"
+      - "/opt/spark/jobs/vitals_scored_1hr_agg.py"
+    ports:
+      - "4041:4040"   # Spark Application UI
   delta-reader:
     container_name: delta-reader
     build:
@@ -209,3 +254,4 @@ volumes:
   timescaledb-data:
   minio-data:
   grafana-data:
+  spark-ivy-cache:
